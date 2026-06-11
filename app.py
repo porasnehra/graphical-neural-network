@@ -7,9 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 import sys
 
-# Ensure Python can find our custom layer
 sys.path.insert(0, str(Path(__file__).parent))
-from gnn_model import SimpleGCNLayer
+from gnn_model import SimpleGCNLayer, create_gnn_model
+from graph_data_generator import generate_synthetic_graph
 
 app = FastAPI(title="Graph Neural Network (GNN) Anti-Money Laundering API")
 
@@ -26,13 +26,31 @@ MODEL_PATH = Path("gnn_backend/results/gnn_model.keras")
 DATA_PATH = Path("gnn_backend/data/synthetic_graph.json")
 model = None
 
+# 1. Failsafe: Generate graph data if missing
+if not DATA_PATH.exists():
+    print("Graph data missing. Auto-generating synthetic graph network...")
+    generate_synthetic_graph()
+
+# 2. Failsafe: Generate dummy model if missing
 try:
     if MODEL_PATH.exists():
-        # Must pass custom_objects so Keras knows how to load our custom GCN layer
         model = tf.keras.models.load_model(str(MODEL_PATH), custom_objects={'SimpleGCNLayer': SimpleGCNLayer})
         print(f"Loaded TensorFlow GNN model from {MODEL_PATH}")
     else:
-        print("Warning: GNN model not found. Please run train_gnn.py to train the network.")
+        print("Warning: GNN model not found. Generating an initial untrained baseline model...")
+        
+        # Load data to know how many features we have
+        with open(DATA_PATH, "r") as f:
+            data = json.load(f)
+        num_features = len(data["nodes"][0]["features"])
+        
+        # Generate baseline untrained model
+        model = create_gnn_model(num_features)
+        
+        # Save it
+        Path("gnn_backend/results").mkdir(parents=True, exist_ok=True)
+        model.save(str(MODEL_PATH))
+        print(f"Untrained baseline GNN model saved to {MODEL_PATH}")
 except Exception as e:
     print(f"Error loading model: {e}")
 
